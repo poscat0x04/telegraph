@@ -1,0 +1,6 @@
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:telegraph"
+    - path: "./test"
+      component: "test:telegraph-test"
