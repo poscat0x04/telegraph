@@ -1,12 +1,19 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Web.Telegraph.API
   ( -- ** Types
     Telegraph (..),
     MonadTelegraph (..),
     AccountInfo (..),
+
+    -- ** Interpreting 'MonadTelegraph'
+    TelegraphT (..),
+    runTelegraph,
+    runTelegraph',
 
     -- ** Type Synonyms
     HasHttpCap,
@@ -28,9 +35,14 @@ module Web.Telegraph.API
 where
 
 import Conduit
+import Control.Concurrent
+import Control.Exception (throwIO)
+import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Reader
+import Control.Monad.Trans.Control
 import Data.Aeson (eitherDecode, encode, object, (.=))
+import Data.Function ((&))
 import Data.Maybe
 import Data.Text (Text)
 import Deriving.Aeson
@@ -45,6 +57,38 @@ class MonadThrow m => MonadTelegraph m where
   takeTelegraph :: m Telegraph
   readTelegraph :: m Telegraph
   putTelegraph :: Telegraph -> m ()
+
+newtype TelegraphT m a = TelegraphT {runTelegraphT :: ReaderT (MVar Telegraph) m a}
+  deriving newtype
+    ( Functor,
+      Applicative,
+      Monad,
+      MonadTrans,
+      MonadIO,
+      MonadThrow,
+      MonadCatch,
+      MonadMask,
+      MonadReader (MVar Telegraph),
+      MonadBase b,
+      MonadBaseControl b
+    )
+
+instance (MonadThrow m, MonadIO m) => MonadTelegraph (TelegraphT m) where
+  takeTelegraph = ask >>= liftIO . takeMVar
+  readTelegraph = ask >>= liftIO . readMVar
+  putTelegraph t = ask >>= \ref -> liftIO $ putMVar ref t
+
+instance
+  {-# OVERLAPPABLE #-}
+  ( MonadTelegraph m,
+    MonadTrans f,
+    MonadThrow (f m)
+  ) =>
+  MonadTelegraph (f m)
+  where
+  takeTelegraph = lift takeTelegraph
+  readTelegraph = lift readTelegraph
+  putTelegraph = lift . putTelegraph
 
 data Telegraph = Telegraph
   { accessToken :: Text,
@@ -213,3 +257,27 @@ postAeson url c = do
   case eitherDecode (responseBody resp) of
     Left e -> P.error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
+
+runTelegraph :: HasHttpCap env m => Text -> TelegraphT m a -> m a
+runTelegraph accessToken m = do
+  r <- getAccountInfo' accessToken
+  case r of
+    Error e -> liftIO $ throwIO $ APICallFailure e
+    Result Account {shortName, authorName, authorUrl} -> do
+      let t = Telegraph {..}
+      ref <- liftIO $ newMVar t
+      m
+        & runTelegraphT
+        & flip runReaderT ref
+
+runTelegraph' :: HasHttpCap env m => AccountInfo -> TelegraphT m a -> m a
+runTelegraph' acc m = do
+  r <- createAccount acc
+  case r of
+    Error e -> liftIO $ throwIO $ APICallFailure e
+    Result Account {shortName, authorName, authorUrl, accessToken = accessToken'} -> do
+      let t = Telegraph {accessToken = fromJust accessToken', ..}
+      ref <- liftIO $ newMVar t
+      m
+        & runTelegraphT
+        & flip runReaderT ref
