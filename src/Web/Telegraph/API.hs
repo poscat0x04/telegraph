@@ -1,7 +1,9 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Web.Telegraph.API
@@ -31,23 +33,38 @@ module Web.Telegraph.API
     getAccountInfo',
     getPage,
     getTotalViews,
+
+    -- ** Image uploading API
+    uploadImageFromFile,
+    uploadImageFromFiles,
+    ImgStream (..),
+    uploadImageStreaming,
+    uploadImagesStreaming,
+    uploadParts,
   )
 where
 
 import Conduit
+  ( ConduitT,
+    sourceHandle,
+  )
 import Control.Concurrent
 import Control.Exception (throwIO)
 import Control.Monad.Base
 import Control.Monad.Catch
+import Control.Monad.Cont
 import Control.Monad.Reader
 import Control.Monad.Trans.Control
 import Data.Aeson (eitherDecode, encode, object, (.=))
+import Data.ByteString (ByteString)
 import Data.Function ((&))
 import Data.Maybe
-import Data.Text (Text)
+import Data.Text (Text, pack, unpack)
 import Deriving.Aeson
 import Deriving.Aeson.Stock
 import Network.HTTP.Client.Conduit
+import Network.HTTP.Client.MultipartFormData
+import System.IO
 import Web.Telegraph.Types
 import Prelude as P
 
@@ -248,7 +265,52 @@ getTotalViews path = postAeson "https://api.telegra.ph/getViews" o
   where
     o = object ["path" .= path]
 
--------------------
+--------------------------------------------------
+-- Upload API
+
+uploadParts :: HasHttpCap env m => [PartM m] -> m UploadResult
+uploadParts parts = do
+  let initReq = parseRequest_ "POST https://telegra.ph/upload"
+  boundary <- liftIO webkitBoundary
+  req <- formDataBodyWithBoundary boundary parts initReq
+  resp <- httpLbs req
+  case eitherDecode (responseBody resp) of
+    Left e -> P.error ("impossible: json decode failure: " ++ e)
+    Right r -> pure r
+
+uploadImageFromFile :: (HasHttpCap env m, MonadMask m) => FilePath -> m UploadResult
+uploadImageFromFile fp =
+  evalContT $ do
+    src <- withSourceFile fp
+    let body = requestBodySourceChunked src
+        part = partFileRequestBody "file" fp body
+    lift $ uploadParts [part]
+
+uploadImageFromFiles :: (HasHttpCap env m, MonadMask m) => [FilePath] -> m UploadResult
+uploadImageFromFiles fps =
+  evalContT $ do
+    srcs <- traverse withSourceFile fps
+    let bodies = map requestBodySourceChunked srcs
+        parts = zipWith (\fp -> partFileRequestBody (pack fp) fp) fps bodies
+    lift $ uploadParts parts
+
+data ImgStream = ImgStream
+  { name :: Text,
+    stream :: forall i n. MonadIO n => ConduitT i ByteString n ()
+  }
+
+imgStream2Part :: Applicative m => ImgStream -> PartM m
+imgStream2Part ImgStream {..} = partFileRequestBody name (unpack name) body
+  where
+    body = requestBodySourceChunked stream
+
+uploadImageStreaming :: HasHttpCap env m => ImgStream -> m UploadResult
+uploadImageStreaming imgs = uploadParts [imgStream2Part imgs]
+
+uploadImagesStreaming :: HasHttpCap env m => [ImgStream] -> m UploadResult
+uploadImagesStreaming imgss = uploadParts $ map imgStream2Part imgss
+
+--------------------------------------------------
 -- Utils
 postAeson :: (ToJSON a, FromJSON b, HasHttpCap env m) => String -> a -> m b
 postAeson url c = do
@@ -281,3 +343,13 @@ runTelegraph' acc m = do
       m
         & runTelegraphT
         & flip runReaderT ref
+
+evalContT :: Applicative m => ContT r m r -> m r
+evalContT m = runContT m pure
+
+withSourceFile :: (MonadMask m, MonadIO m, MonadIO n) => FilePath -> ContT r m (ConduitT i ByteString n ())
+withSourceFile fp = ContT $ \k ->
+  bracket
+    (liftIO $ openBinaryFile fp ReadMode)
+    (liftIO . hClose)
+    (k . sourceHandle)
