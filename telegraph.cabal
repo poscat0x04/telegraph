@@ -22,6 +22,7 @@ common common-attrs
     , aeson
     , base        >=4.10 && <5
     , bytestring
+    , deriving-aeson
     , http-client
     , http-client-tls
     , text
@@ -62,7 +63,7 @@ library
   build-depends:
 
   exposed-modules:
-
+    Web.Telegraph.Types
   other-modules:
   hs-source-dirs:  src
 
