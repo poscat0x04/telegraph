@@ -1,11 +1,14 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StrictData #-}
 
 module Web.Telegraph.Types where
 
+import Control.Exception
 import Data.Aeson hiding (Result (..))
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 import Deriving.Aeson
 import Deriving.Aeson.Stock
 
@@ -42,9 +45,9 @@ data Page = Page
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via CustomJSON '[FieldLabelModifier CamelToSnake, OmitNothingFields] Page
 
-newtype PageView = PageView {views :: Int}
+newtype PageViews = PageViews {views :: Int}
   deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Vanilla PageView
+  deriving (FromJSON, ToJSON) via Vanilla PageViews
 
 data Node
   = Content {-# UNPACK #-} Text
@@ -81,3 +84,13 @@ data UploadResult
   | Sources [Image]
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via CustomJSON '[SumUntaggedValue] UploadResult
+
+newtype TelegraphError
+  = -- | An api call has failed, we cannot distinguish between minor errors (such as illformed author urls)
+    -- and much serious errors, such as invalid accessTokens, so we always throw exceptions
+    APICallFailure Text
+  deriving newtype (Eq)
+  deriving anyclass (Exception)
+
+instance Show TelegraphError where
+  show (APICallFailure e) = "API call failed with error: " ++ unpack e
