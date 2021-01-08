@@ -186,13 +186,11 @@ revokeAccessToken =
   bracketOnError
     takeTelegraph
     putTelegraph
-    $ \t@Telegraph {..} -> do
+    $ \Telegraph {..} -> do
       let o = object ["access_token" .= accessToken]
       r <- postAeson "https://api.telegra.ph/revokeAccessToken" o
       case r of
-        Error e -> do
-          putTelegraph t
-          throwM $ APICallFailure e
+        Error e -> throwM $ APICallFailure e
         Result a@Account {accessToken = accessToken'} -> do
           let t' = Telegraph {accessToken = fromJust accessToken', ..}
           putTelegraph t'
