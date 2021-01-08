@@ -20,11 +20,12 @@ extra-doc-files:
 common common-attrs
   build-depends:
     , aeson
-    , base               >=4.10 && <5
+    , base                  >=4.10 && <5
     , bytestring
     , conduit
     , deriving-aeson
     , exceptions
+    , generic-data-surgery
     , http-client
     , http-client-tls
     , http-conduit

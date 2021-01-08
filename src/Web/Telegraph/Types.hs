@@ -8,9 +8,11 @@ module Web.Telegraph.Types where
 
 import Control.Exception
 import Data.Aeson hiding (Result (..))
+import Data.Maybe
 import Data.Text (Text, unpack)
 import Deriving.Aeson
 import Deriving.Aeson.Stock
+import Generic.Data.Surgery
 
 data Account = Account
   { shortName :: {-# UNPACK #-} Text,
@@ -61,7 +63,17 @@ data NodeElement = NodeElement
     children :: [Node]
   }
   deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Vanilla NodeElement
+  deriving (ToJSON) via Vanilla NodeElement
+
+instance FromJSON NodeElement where
+  parseJSON =
+    fmap
+      ( fromORLazy
+          . modifyRField @"attrs" (fromMaybe [])
+          . modifyRField @"children" (fromMaybe [])
+          . toOR'
+      )
+      . genericParseJSON defaultOptions
 
 data Result a
   = Error {-# UNPACK #-} Text
