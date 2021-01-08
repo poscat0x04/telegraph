@@ -85,15 +85,20 @@ newtype TelegraphT m a = TelegraphT {runTelegraphT :: ReaderT (MVar Telegraph) m
       MonadThrow,
       MonadCatch,
       MonadMask,
-      MonadReader (MVar Telegraph),
       MonadBase b,
       MonadBaseControl b
     )
 
+instance MonadReader r m => MonadReader r (TelegraphT m) where
+  ask = lift ask
+  local f m = do
+    ref <- TelegraphT ask
+    lift $ local f $ flip runReaderT ref $ runTelegraphT m
+
 instance (MonadThrow m, MonadIO m) => MonadTelegraph (TelegraphT m) where
-  takeTelegraph = ask >>= liftIO . takeMVar
-  readTelegraph = ask >>= liftIO . readMVar
-  putTelegraph t = ask >>= \ref -> liftIO $ putMVar ref t
+  takeTelegraph = TelegraphT ask >>= liftIO . takeMVar
+  readTelegraph = TelegraphT ask >>= liftIO . readMVar
+  putTelegraph t = TelegraphT ask >>= \ref -> liftIO $ putMVar ref t
 
 instance
   {-# OVERLAPPABLE #-}
