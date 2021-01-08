@@ -319,7 +319,15 @@ uploadImagesStreaming imgss = uploadParts $ map imgStream2Part imgss
 -- Utils
 postAeson :: (ToJSON a, FromJSON b, HasHttpCap env m) => String -> a -> m b
 postAeson url c = do
-  let req = (parseRequest_ url) {method = "POST", requestBody = RequestBodyLBS $ encode c}
+  let req =
+        (parseRequest_ url)
+          { method = "POST",
+            requestBody = RequestBodyLBS $ encode c,
+            requestHeaders =
+              [ ("content-type", "application/json"),
+                ("accept", "application/json")
+              ]
+          }
   resp <- httpLbs req
   case eitherDecode (responseBody resp) of
     Left e -> P.error ("impossible: json decode failure: " ++ e)
