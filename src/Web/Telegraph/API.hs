@@ -6,6 +6,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- | The telegraph API.
+-- Every function that runs in 'MonadTelegraph' might throw a 'TelegraphError'.
 module Web.Telegraph.API
   ( -- ** Types
     Telegraph (..),
@@ -128,18 +130,11 @@ data AccountInfo = AccountInfo
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via Snake AccountInfo
 
+-- | Use this method to create a new Telegraph account
 createAccount :: HasHttpCap env m => AccountInfo -> m (Result Account)
 createAccount !a = postAeson "https://api.telegra.ph/createAccount" a
 
-data EditAccountInfo = EditAccountInfo
-  { accessToken :: Text,
-    shortName :: Text,
-    authorName :: Text,
-    authorUrl :: Text
-  }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Snake EditAccountInfo
-
+-- | Use this method to update information about this Telegraph account
 editAccountInfo :: (HasHttpCap env m, MonadTelegraph m, MonadMask m) => AccountInfo -> m ()
 editAccountInfo AccountInfo {..} =
   bracketOnError
@@ -162,6 +157,7 @@ editAccountInfo AccountInfo {..} =
           let t' = Telegraph {..}
           putTelegraph t'
 
+-- | Use this method to get information about this Telegraph account
 getAccountInfo :: (HasHttpCap env m, MonadTelegraph m) => m Account
 getAccountInfo = do
   Telegraph {accessToken} <- readTelegraph
@@ -181,6 +177,7 @@ getAccountInfo' accessToken = postAeson "https://api.telegra.ph/getAccountInfo" 
           "fields" .= fields
         ]
 
+-- | Use this method to revoke access_token and generate a new one
 revokeAccessToken :: (HasHttpCap env m, MonadTelegraph m, MonadMask m) => m Account
 revokeAccessToken =
   bracketOnError
@@ -207,7 +204,14 @@ data CreatePage = CreatePage
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via Snake CreatePage
 
-createPage :: (HasHttpCap env m, MonadTelegraph m) => Text -> [Node] -> m Page
+-- | Use this method to create a new Telegraph page
+createPage ::
+  (HasHttpCap env m, MonadTelegraph m) =>
+  -- | title
+  Text ->
+  -- | content
+  [Node] ->
+  m Page
 createPage title content = do
   Telegraph {..} <- readTelegraph
   let o =
@@ -223,7 +227,16 @@ createPage title content = do
     Error e -> throwM $ APICallFailure e
     Result p -> pure p
 
-editPage :: (HasHttpCap env m, MonadTelegraph m) => Text -> Text -> [Node] -> m Page
+-- | Use this method to edit an existing Telegraph page
+editPage ::
+  (HasHttpCap env m, MonadTelegraph m) =>
+  -- | path
+  Text ->
+  -- | title
+  Text ->
+  -- | content
+  [Node] ->
+  m Page
 editPage path title content = do
   Telegraph {..} <- readTelegraph
   let o =
@@ -240,6 +253,7 @@ editPage path title content = do
     Error e -> throwM $ APICallFailure e
     Result p -> pure p
 
+-- | Use this method to get a Telegraph page
 getPage :: HasHttpCap env m => Text -> m (Result Page)
 getPage path = do
   let o =
@@ -249,7 +263,14 @@ getPage path = do
           ]
   postAeson "https://api.telegra.ph/getPage" o
 
-getPageList :: (HasHttpCap env m, MonadTelegraph m) => Int -> Int -> m PageList
+-- | Use this method to get a list of pages belonging to this Telegraph account
+getPageList ::
+  (HasHttpCap env m, MonadTelegraph m) =>
+  -- | offset
+  Int ->
+  -- | limit (0 - 200)
+  Int ->
+  m PageList
 getPageList offset limit = do
   Telegraph {..} <- readTelegraph
   let o =
@@ -263,6 +284,7 @@ getPageList offset limit = do
     Error e -> throwM $ APICallFailure e
     Result p -> pure p
 
+-- | Use this method to get the total number of views for a Telegraph article
 getTotalViews :: HasHttpCap env m => Text -> m (Result PageViews)
 getTotalViews path = postAeson "https://api.telegra.ph/getViews" o
   where
@@ -281,6 +303,7 @@ uploadParts parts = do
     Left e -> P.error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
 
+-- | Upload a image from a filepath to Telegraph
 uploadImageFromFile :: (HasHttpCap env m, MonadMask m) => FilePath -> m UploadResult
 uploadImageFromFile fp =
   evalContT $ do
@@ -289,6 +312,7 @@ uploadImageFromFile fp =
         part = partFileRequestBody "file" fp body
     lift $ uploadParts [part]
 
+-- | Upload a list of images to Telegraph. The resulting list of images will be in the same order
 uploadImageFromFiles :: (HasHttpCap env m, MonadMask m) => [FilePath] -> m UploadResult
 uploadImageFromFiles fps =
   evalContT $ do
@@ -298,7 +322,8 @@ uploadImageFromFiles fps =
     lift $ uploadParts parts
 
 data ImgStream = ImgStream
-  { name :: Text,
+  { -- | an image stream needs a filename
+    name :: Text,
     stream :: forall i n. MonadIO n => ConduitT i ByteString n ()
   }
 
@@ -307,9 +332,11 @@ imgStream2Part ImgStream {..} = partFileRequestBody name (unpack name) body
   where
     body = requestBodySourceChunked stream
 
+-- | Upload a image stream to Telegraph
 uploadImageStreaming :: HasHttpCap env m => ImgStream -> m UploadResult
 uploadImageStreaming imgs = uploadParts [imgStream2Part imgs]
 
+-- | Upload a list of image streams to Telegraph. The resulting list of images
 uploadImagesStreaming :: HasHttpCap env m => [ImgStream] -> m UploadResult
 uploadImagesStreaming imgss = uploadParts $ map imgStream2Part imgss
 
@@ -331,6 +358,7 @@ postAeson url c = do
     Left e -> P.error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
 
+-- | interprets 'TelegraphT' using the access token of an existing account
 runTelegraph :: HasHttpCap env m => Text -> TelegraphT m a -> m a
 runTelegraph accessToken m = do
   r <- getAccountInfo' accessToken
@@ -343,6 +371,7 @@ runTelegraph accessToken m = do
         & runTelegraphT
         & flip runReaderT ref
 
+-- | Create a new account and interprets 'TelegraphT' using that account
 runTelegraph' :: HasHttpCap env m => AccountInfo -> TelegraphT m a -> m a
 runTelegraph' acc m = do
   r <- createAccount acc
@@ -357,6 +386,7 @@ runTelegraph' acc m = do
 
 evalContT :: Applicative m => ContT r m r -> m r
 evalContT m = runContT m pure
+{-# INLINE evalContT #-}
 
 withSourceFile :: (MonadMask m, MonadIO m, MonadIO n) => FilePath -> ContT r m (ConduitT i ByteString n ())
 withSourceFile fp = ContT $ \k ->
