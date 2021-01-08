@@ -42,7 +42,7 @@ data Page = Page
     imageUrl :: Maybe Text,
     content :: Maybe [Node],
     views :: {-# UNPACK #-} Int,
-    canEdit :: Bool
+    canEdit :: Maybe Bool
   }
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via CustomJSON '[FieldLabelModifier CamelToSnake, OmitNothingFields] Page
