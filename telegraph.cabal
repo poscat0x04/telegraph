@@ -27,7 +27,6 @@ common common-attrs
     , exceptions
     , generic-data-surgery
     , http-client
-    , http-client-tls
     , http-conduit
     , monad-control
     , mtl
@@ -78,7 +77,10 @@ library
 test-suite telegraph-test
   import:         common-attrs
   type:           exitcode-stdio-1.0
-  build-depends:  telegraph
+  build-depends:
+    , http-client-tls
+    , telegraph
+
   hs-source-dirs: test
   main-is:        Spec.hs
 

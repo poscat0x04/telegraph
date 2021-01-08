@@ -17,7 +17,7 @@
       overlay = self: super:
         let
           hpkgs = super.haskellPackages;
-          telegraph = hpkgs.callCabal2nix "telegraph" ./. {};
+          telegraph = self.haskell.lib.dontCheck (hpkgs.callCabal2nix "telegraph" ./. {});
         in
           with super; with haskell.lib;
           {
