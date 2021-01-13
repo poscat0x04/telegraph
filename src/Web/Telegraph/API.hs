@@ -10,17 +10,24 @@
 -- Every function that runs in 'MonadTelegraph' might throw a 'TelegraphError'.
 module Web.Telegraph.API
   ( -- ** Types
-    Telegraph (..),
-    MonadTelegraph (..),
     AccountInfo (..),
+    TS (..),
 
-    -- ** Interpreting 'MonadTelegraph'
-    TelegraphT (..),
+    -- ** Effects
+    Telegraph (..),
+    Http (..),
+    Telegraph',
+    Http',
+
+    -- ** Interpreters
     runTelegraph,
     runTelegraph',
 
-    -- ** Type Synonyms
-    HasHttpCap,
+    -- *** Error Interpreters
+    errorToIO',
+    errorToErrorIO',
+    errorToIOThrowing,
+    errorToErrorIOThrowing,
 
     -- ** Account related APIs
     editAccountInfo,
@@ -43,6 +50,15 @@ module Web.Telegraph.API
     uploadImageStreaming,
     uploadImagesStreaming,
     uploadParts,
+
+    -- ** Interpreter primitives
+    TelegraphToIOC,
+    TelegraphC,
+    HttpC,
+    TelegraphH,
+    HttpH,
+    telegraph,
+    http,
   )
 where
 
@@ -51,76 +67,23 @@ import Conduit
     sourceHandle,
   )
 import Control.Concurrent
-import Control.Exception (throwIO)
-import Control.Monad.Base
-import Control.Monad.Catch
+import Control.Effect
+import Control.Effect.Bracket
+import Control.Effect.Error
+import Control.Effect.Reader
+import Control.Effect.Telegraph
 import Control.Monad.Cont
-import Control.Monad.Reader
-import Control.Monad.Trans.Control
 import Data.Aeson (eitherDecode, encode, object, (.=))
 import Data.ByteString (ByteString)
-import Data.Function ((&))
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
 import Deriving.Aeson
 import Deriving.Aeson.Stock
-import Network.HTTP.Client.Conduit
+import Network.HTTP.Client (HttpException, Manager, Request (..), RequestBody (..), Response (..), parseRequest_)
+import Network.HTTP.Client.Conduit (requestBodySourceChunked)
 import Network.HTTP.Client.MultipartFormData
 import System.IO
-import Web.Telegraph.Types
-import Prelude as P
-
-type HasHttpCap env m = (MonadIO m, HasHttpManager env, MonadReader env m)
-
-class MonadThrow m => MonadTelegraph m where
-  takeTelegraph :: m Telegraph
-  readTelegraph :: m Telegraph
-  putTelegraph :: Telegraph -> m ()
-
-newtype TelegraphT m a = TelegraphT {runTelegraphT :: ReaderT (MVar Telegraph) m a}
-  deriving newtype
-    ( Functor,
-      Applicative,
-      Monad,
-      MonadTrans,
-      MonadIO,
-      MonadThrow,
-      MonadCatch,
-      MonadMask,
-      MonadBase b,
-      MonadBaseControl b
-    )
-
-instance MonadReader r m => MonadReader r (TelegraphT m) where
-  ask = lift ask
-  local f m = do
-    ref <- TelegraphT ask
-    lift $ local f $ flip runReaderT ref $ runTelegraphT m
-
-instance (MonadThrow m, MonadIO m) => MonadTelegraph (TelegraphT m) where
-  takeTelegraph = TelegraphT ask >>= liftIO . takeMVar
-  readTelegraph = TelegraphT ask >>= liftIO . readMVar
-  putTelegraph t = TelegraphT ask >>= \ref -> liftIO $ putMVar ref t
-
-instance
-  {-# OVERLAPPABLE #-}
-  ( MonadTelegraph m,
-    MonadTrans f,
-    MonadThrow (f m)
-  ) =>
-  MonadTelegraph (f m)
-  where
-  takeTelegraph = lift takeTelegraph
-  readTelegraph = lift readTelegraph
-  putTelegraph = lift . putTelegraph
-
-data Telegraph = Telegraph
-  { accessToken :: Text,
-    shortName :: Text,
-    authorName :: Text,
-    authorUrl :: Text
-  }
-  deriving (Show, Eq, Generic)
+import Web.Telegraph.Types hiding (error)
 
 data AccountInfo = AccountInfo
   { shortName :: Text,
@@ -131,16 +94,16 @@ data AccountInfo = AccountInfo
   deriving (FromJSON, ToJSON) via Snake AccountInfo
 
 -- | Use this method to create a new Telegraph account
-createAccount :: HasHttpCap env m => AccountInfo -> m (Result Account)
+createAccount :: Eff Http' m => AccountInfo -> m (Result Account)
 createAccount !a = postAeson "https://api.telegra.ph/createAccount" a
 
 -- | Use this method to update information about this Telegraph account
-editAccountInfo :: (HasHttpCap env m, MonadTelegraph m, MonadMask m) => AccountInfo -> m ()
+editAccountInfo :: (Effs '[Telegraph', Bracket, Throw TelegraphError] m) => AccountInfo -> m ()
 editAccountInfo AccountInfo {..} =
   bracketOnError
-    takeTelegraph
-    putTelegraph
-    $ \t@Telegraph {accessToken} -> do
+    takeTS
+    putTS
+    $ \t@TS {accessToken} -> do
       let o =
             object
               [ "access_token" .= accessToken,
@@ -151,22 +114,19 @@ editAccountInfo AccountInfo {..} =
       r <- postAeson "https://api.telegra.ph/editAccountInfo" o
       case r of
         Error e -> do
-          putTelegraph t
-          throwM $ APICallFailure e
+          putTS t
+          throw $ APICallFailure e
         Result Account {} -> do
-          let t' = Telegraph {..}
-          putTelegraph t'
+          let t' = TS {..}
+          putTS t'
 
 -- | Use this method to get information about this Telegraph account
-getAccountInfo :: (HasHttpCap env m, MonadTelegraph m) => m Account
+getAccountInfo :: Effs '[Telegraph', Throw TelegraphError] m => m Account
 getAccountInfo = do
-  Telegraph {accessToken} <- readTelegraph
-  r <- getAccountInfo' accessToken
-  case r of
-    Error e -> throwM $ APICallFailure e
-    Result a -> pure a
+  TS {accessToken} <- readTS
+  processResult =<< getAccountInfo' accessToken
 
-getAccountInfo' :: HasHttpCap env m => Text -> m (Result Account)
+getAccountInfo' :: Eff Http' m => Text -> m (Result Account)
 getAccountInfo' accessToken = postAeson "https://api.telegra.ph/getAccountInfo" o
   where
     fields :: [Text]
@@ -178,20 +138,17 @@ getAccountInfo' accessToken = postAeson "https://api.telegra.ph/getAccountInfo" 
         ]
 
 -- | Use this method to revoke access_token and generate a new one
-revokeAccessToken :: (HasHttpCap env m, MonadTelegraph m, MonadMask m) => m Account
+revokeAccessToken :: (Effs '[Telegraph', Bracket, Error TelegraphError] m) => m Account
 revokeAccessToken =
   bracketOnError
-    takeTelegraph
-    putTelegraph
-    $ \Telegraph {..} -> do
+    takeTS
+    putTS
+    $ \TS {..} -> do
       let o = object ["access_token" .= accessToken]
-      r <- postAeson "https://api.telegra.ph/revokeAccessToken" o
-      case r of
-        Error e -> throwM $ APICallFailure e
-        Result a@Account {accessToken = accessToken'} -> do
-          let t' = Telegraph {accessToken = fromJust accessToken', ..}
-          putTelegraph t'
-          pure a
+      a@Account {accessToken = accessToken'} <- processResult =<< postAeson "https://api.telegra.ph/revokeAccessToken" o
+      let t' = TS {accessToken = fromJust accessToken', ..}
+      putTS t'
+      pure a
 
 data CreatePage = CreatePage
   { accessToken :: Text,
@@ -206,14 +163,14 @@ data CreatePage = CreatePage
 
 -- | Use this method to create a new Telegraph page
 createPage ::
-  (HasHttpCap env m, MonadTelegraph m) =>
+  (Effs '[Telegraph', Error TelegraphError] m) =>
   -- | title
   Text ->
   -- | content
   [Node] ->
   m Page
 createPage title content = do
-  Telegraph {..} <- readTelegraph
+  TS {..} <- readTS
   let o =
         object
           [ "access_token" .= accessToken,
@@ -222,14 +179,11 @@ createPage title content = do
             "author_url" .= authorUrl,
             "content" .= content
           ]
-  r <- postAeson "https://api.telegra.ph/createPage" o
-  case r of
-    Error e -> throwM $ APICallFailure e
-    Result p -> pure p
+  processResult =<< postAeson "https://api.telegra.ph/createPage" o
 
 -- | Use this method to edit an existing Telegraph page
 editPage ::
-  (HasHttpCap env m, MonadTelegraph m) =>
+  (Effs '[Telegraph', Throw TelegraphError] m) =>
   -- | path
   Text ->
   -- | title
@@ -238,7 +192,7 @@ editPage ::
   [Node] ->
   m Page
 editPage path title content = do
-  Telegraph {..} <- readTelegraph
+  TS {..} <- readTS
   let o =
         object
           [ "access_token" .= accessToken,
@@ -248,13 +202,10 @@ editPage path title content = do
             "author_url" .= authorUrl,
             "content" .= content
           ]
-  r <- postAeson "https://api.telegra.ph/editPage" o
-  case r of
-    Error e -> throwM $ APICallFailure e
-    Result p -> pure p
+  processResult =<< postAeson "https://api.telegra.ph/editPage" o
 
 -- | Use this method to get a Telegraph page
-getPage :: HasHttpCap env m => Text -> m (Result Page)
+getPage :: Eff Http' m => Text -> m (Result Page)
 getPage path = do
   let o =
         object
@@ -265,27 +216,24 @@ getPage path = do
 
 -- | Use this method to get a list of pages belonging to this Telegraph account
 getPageList ::
-  (HasHttpCap env m, MonadTelegraph m) =>
+  (Effs '[Telegraph', Throw TelegraphError] m) =>
   -- | offset
   Int ->
   -- | limit (0 - 200)
   Int ->
   m PageList
 getPageList offset limit = do
-  Telegraph {..} <- readTelegraph
+  TS {..} <- readTS
   let o =
         object
           [ "access_token" .= accessToken,
             "offset" .= offset,
             "limit" .= limit
           ]
-  r <- postAeson "https://api.telegra.ph/getPageList" o
-  case r of
-    Error e -> throwM $ APICallFailure e
-    Result p -> pure p
+  processResult =<< postAeson "https://api.telegra.ph/getPageList" o
 
 -- | Use this method to get the total number of views for a Telegraph article
-getTotalViews :: HasHttpCap env m => Text -> m (Result PageViews)
+getTotalViews :: Eff Http' m => Text -> m (Result PageViews)
 getTotalViews path = postAeson "https://api.telegra.ph/getViews" o
   where
     o = object ["path" .= path]
@@ -293,18 +241,18 @@ getTotalViews path = postAeson "https://api.telegra.ph/getViews" o
 --------------------------------------------------
 -- Upload API
 
-uploadParts :: HasHttpCap env m => [PartM m] -> m UploadResult
+uploadParts :: Eff Telegraph' m => [PartM m] -> m UploadResult
 uploadParts parts = do
   let initReq = parseRequest_ "POST https://telegra.ph/upload"
-  boundary <- liftIO webkitBoundary
+  boundary <- genBoundary
   req <- formDataBodyWithBoundary boundary parts initReq
   resp <- httpLbs req
   case eitherDecode (responseBody resp) of
-    Left e -> P.error ("impossible: json decode failure: " ++ e)
+    Left e -> error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
 
 -- | Upload a image from a filepath to Telegraph
-uploadImageFromFile :: (HasHttpCap env m, MonadMask m) => FilePath -> m UploadResult
+uploadImageFromFile :: (Effs '[Telegraph', Bracket, Embed IO] m) => FilePath -> m UploadResult
 uploadImageFromFile fp =
   evalContT $ do
     src <- withSourceFile fp
@@ -313,7 +261,7 @@ uploadImageFromFile fp =
     lift $ uploadParts [part]
 
 -- | Upload a list of images to Telegraph. The resulting list of images will be in the same order
-uploadImageFromFiles :: (HasHttpCap env m, MonadMask m) => [FilePath] -> m UploadResult
+uploadImageFromFiles :: (Effs '[Telegraph', Bracket, Embed IO] m) => [FilePath] -> m UploadResult
 uploadImageFromFiles fps =
   evalContT $ do
     srcs <- traverse withSourceFile fps
@@ -333,16 +281,16 @@ imgStream2Part ImgStream {..} = partFileRequestBody name (unpack name) body
     body = requestBodySourceChunked stream
 
 -- | Upload a image stream to Telegraph
-uploadImageStreaming :: HasHttpCap env m => ImgStream -> m UploadResult
+uploadImageStreaming :: Eff Telegraph' m => ImgStream -> m UploadResult
 uploadImageStreaming imgs = uploadParts [imgStream2Part imgs]
 
 -- | Upload a list of image streams to Telegraph. The resulting list of images
-uploadImagesStreaming :: HasHttpCap env m => [ImgStream] -> m UploadResult
+uploadImagesStreaming :: Eff Telegraph' m => [ImgStream] -> m UploadResult
 uploadImagesStreaming imgss = uploadParts $ map imgStream2Part imgss
 
 --------------------------------------------------
 -- Utils
-postAeson :: (ToJSON a, FromJSON b, HasHttpCap env m) => String -> a -> m b
+postAeson :: (ToJSON a, FromJSON b, Eff Http' m) => String -> a -> m b
 postAeson url c = do
   let req =
         (parseRequest_ url)
@@ -355,42 +303,49 @@ postAeson url c = do
           }
   resp <- httpLbs req
   case eitherDecode (responseBody resp) of
-    Left e -> P.error ("impossible: json decode failure: " ++ e)
+    Left e -> error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
 
--- | interprets 'TelegraphT' using the access token of an existing account
-runTelegraph :: HasHttpCap env m => Text -> TelegraphT m a -> m a
-runTelegraph accessToken m = do
-  r <- getAccountInfo' accessToken
-  case r of
-    Error e -> liftIO $ throwIO $ APICallFailure e
-    Result Account {shortName, authorName, authorUrl} -> do
-      let t = Telegraph {..}
-      ref <- liftIO $ newMVar t
-      m
-        & runTelegraphT
-        & flip runReaderT ref
+type TelegraphToIOC =
+  CompositionC
+    '[ TelegraphC,
+       ReaderC (MVar TS),
+       HttpC
+     ]
 
--- | Create a new account and interprets 'TelegraphT' using that account
-runTelegraph' :: HasHttpCap env m => AccountInfo -> TelegraphT m a -> m a
-runTelegraph' acc m = do
-  r <- createAccount acc
-  case r of
-    Error e -> liftIO $ throwIO $ APICallFailure e
-    Result Account {shortName, authorName, authorUrl, accessToken = accessToken'} -> do
-      let t = Telegraph {accessToken = fromJust accessToken', ..}
-      ref <- liftIO $ newMVar t
-      m
-        & runTelegraphT
-        & flip runReaderT ref
+runTelegraph ::
+  (Effs '[Embed IO, Reader Manager, Error HttpException, Throw TelegraphError] m, Threaders '[ReaderThreads] m p) =>
+  Text ->
+  TelegraphToIOC m a ->
+  m a
+runTelegraph accessToken m =
+  http $ do
+    Account {shortName, authorName, authorUrl} <- processResult =<< getAccountInfo' accessToken
+    ref <- embed $ newMVar TS {..}
+    runReader ref $ telegraph $ runComposition m
+
+runTelegraph' ::
+  (Effs '[Embed IO, Reader Manager, Error HttpException, Throw TelegraphError] m, Threaders '[ReaderThreads] m p) =>
+  AccountInfo ->
+  TelegraphToIOC m a ->
+  m a
+runTelegraph' acc m =
+  http $ do
+    Account {shortName, authorName, authorUrl, accessToken = accessToken'} <- processResult =<< createAccount acc
+    ref <- embed $ newMVar TS {accessToken = fromJust accessToken', ..}
+    runReader ref $ telegraph $ runComposition m
+
+processResult :: Eff (Throw TelegraphError) m => Result a -> m a
+processResult (Error e) = throw $ APICallFailure e
+processResult (Result r) = pure r
 
 evalContT :: Applicative m => ContT r m r -> m r
 evalContT m = runContT m pure
 {-# INLINE evalContT #-}
 
-withSourceFile :: (MonadMask m, MonadIO m, MonadIO n) => FilePath -> ContT r m (ConduitT i ByteString n ())
+withSourceFile :: (Effs '[Embed IO, Bracket] m, MonadIO n) => FilePath -> ContT r m (ConduitT i ByteString n ())
 withSourceFile fp = ContT $ \k ->
   bracket
-    (liftIO $ openBinaryFile fp ReadMode)
-    (liftIO . hClose)
+    (embed $ openBinaryFile fp ReadMode)
+    (embed . hClose)
     (k . sourceHandle)
