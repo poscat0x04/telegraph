@@ -1,6 +1,6 @@
 cabal-version:   3.0
 name:            telegraph
-version:         0.1.0
+version:         1.0.0
 synopsis:        Binding to the telegraph API
 description:     Binding to the telegraph API
 category:        Web
@@ -9,7 +9,7 @@ license-file:    LICENSE
 author:          Poscat
 maintainer:      Poscat <poscat@mail.poscat.moe>
 copyright:       Copyright (c) Poscat 2021
-stability:       alpha
+stability:       experimental
 homepage:        https://github.com/poscat0x04/telegraph
 bug-reports:     https://github.com/poscat0x04/telegraph/issues
 extra-doc-files:
