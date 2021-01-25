@@ -24,8 +24,8 @@ module Web.Telegraph.API
     runTelegraph',
 
     -- *** Error Interpreters
-    errorToIOThrowing,
-    errorToErrorIOThrowing,
+    errorToIOAsExc,
+    errorToErrorIOAsExc,
 
     -- ** Account related APIs
     editAccountInfo,

@@ -50,6 +50,7 @@ telegraph ::
   TelegraphC m a ->
   m a
 telegraph = interpretViaHandler
+{-# INLINE telegraph #-}
 
 data HttpH
 
@@ -68,25 +69,28 @@ http ::
   HttpC m a ->
   m a
 http = interpretViaHandler
+{-# INLINE http #-}
 
-errorToErrorIOThrowing ::
+errorToErrorIOAsExc ::
   (Exception e, Effs '[ErrorIO, Embed IO] m) =>
   InterpretErrorC e m a ->
   m a
-errorToErrorIOThrowing main =
+errorToErrorIOAsExc main =
   interpret (\(Throw e) -> throwIO e) $
     interpret (\(Catch m h) -> m `catchIO` h) $
       runComposition main
+{-# INLINE errorToErrorIOAsExc #-}
 
-errorToIOThrowing ::
+errorToIOAsExc ::
   (Exception e, Eff (Embed IO) m, MonadCatch m) =>
   ErrorToIOC e m a ->
   m a
-errorToIOThrowing m =
+errorToIOAsExc m =
   errorIOToIO $
-    errorToErrorIOThrowing $
+    errorToErrorIOAsExc $
       introUnderMany $
         runComposition m
+{-# INLINE errorToIOAsExc #-}
 
 takeTS :: Eff Telegraph m => m TS
 takeTS = send TakeTS
