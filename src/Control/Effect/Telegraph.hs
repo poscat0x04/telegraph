@@ -69,17 +69,6 @@ http ::
   m a
 http = interpretViaHandler
 
-errorToErrorIO' ::
-  (Exception e, Effs '[ErrorIO, Embed IO] m) =>
-  InterpretErrorC e m a ->
-  m (Either e a)
-errorToErrorIO' main = fmap Right main' `catchIO` (pure . Left)
-  where
-    main' =
-      interpret (\(Throw e) -> throwIO e) $
-        interpret (\(Catch m h) -> m `catchIO` h) $
-          runComposition main
-
 errorToErrorIOThrowing ::
   (Exception e, Effs '[ErrorIO, Embed IO] m) =>
   InterpretErrorC e m a ->
@@ -88,16 +77,6 @@ errorToErrorIOThrowing main =
   interpret (\(Throw e) -> throwIO e) $
     interpret (\(Catch m h) -> m `catchIO` h) $
       runComposition main
-
-errorToIO' ::
-  (Exception e, Eff (Embed IO) m, MonadCatch m) =>
-  ErrorToIOC e m a ->
-  m (Either e a)
-errorToIO' m =
-  errorIOToIO $
-    errorToErrorIO' $
-      introUnderMany $
-        runComposition m
 
 errorToIOThrowing ::
   (Exception e, Eff (Embed IO) m, MonadCatch m) =>
