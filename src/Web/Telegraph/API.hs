@@ -94,6 +94,7 @@ data AccountInfo = AccountInfo
 -- | Use this method to create a new Telegraph account
 createAccount :: Eff Http' m => AccountInfo -> m (Result Account)
 createAccount !a = postAeson "https://api.telegra.ph/createAccount" a
+{-# INLINEABLE createAccount #-}
 
 -- | Use this method to update information about this Telegraph account
 editAccountInfo :: (Effs '[Telegraph', Bracket, Throw TelegraphError] m) => AccountInfo -> m ()
@@ -117,12 +118,14 @@ editAccountInfo AccountInfo {..} =
         Result Account {} -> do
           let t' = TS {..}
           putTS t'
+{-# INLINEABLE editAccountInfo #-}
 
 -- | Use this method to get information about this Telegraph account
 getAccountInfo :: Effs '[Telegraph', Throw TelegraphError] m => m Account
 getAccountInfo = do
   TS {accessToken} <- readTS
   processResult =<< getAccountInfo' accessToken
+{-# INLINEABLE getAccountInfo #-}
 
 getAccountInfo' :: Eff Http' m => Text -> m (Result Account)
 getAccountInfo' accessToken = postAeson "https://api.telegra.ph/getAccountInfo" o
@@ -134,6 +137,7 @@ getAccountInfo' accessToken = postAeson "https://api.telegra.ph/getAccountInfo" 
         [ "access_token" .= accessToken,
           "fields" .= fields
         ]
+{-# INLINEABLE getAccountInfo' #-}
 
 -- | Use this method to revoke access_token and generate a new one
 revokeAccessToken :: (Effs '[Telegraph', Bracket, Error TelegraphError] m) => m Account
@@ -147,6 +151,7 @@ revokeAccessToken =
       let t' = TS {accessToken = fromJust accessToken', ..}
       putTS t'
       pure a
+{-# INLINEABLE revokeAccessToken #-}
 
 data CreatePage = CreatePage
   { accessToken :: Text,
@@ -178,6 +183,7 @@ createPage title content = do
             "content" .= content
           ]
   processResult =<< postAeson "https://api.telegra.ph/createPage" o
+{-# INLINEABLE createPage #-}
 
 -- | Use this method to edit an existing Telegraph page
 editPage ::
@@ -201,6 +207,7 @@ editPage path title content = do
             "content" .= content
           ]
   processResult =<< postAeson "https://api.telegra.ph/editPage" o
+{-# INLINEABLE editPage #-}
 
 -- | Use this method to get a Telegraph page
 getPage :: Eff Http' m => Text -> m (Result Page)
@@ -211,6 +218,7 @@ getPage path = do
             "return_content" .= True
           ]
   postAeson "https://api.telegra.ph/getPage" o
+{-# INLINEABLE getPage #-}
 
 -- | Use this method to get a list of pages belonging to this Telegraph account
 getPageList ::
@@ -229,12 +237,14 @@ getPageList offset limit = do
             "limit" .= limit
           ]
   processResult =<< postAeson "https://api.telegra.ph/getPageList" o
+{-# INLINEABLE getPageList #-}
 
 -- | Use this method to get the total number of views for a Telegraph article
 getTotalViews :: Eff Http' m => Text -> m (Result PageViews)
 getTotalViews path = postAeson "https://api.telegra.ph/getViews" o
   where
     o = object ["path" .= path]
+{-# INLINEABLE getTotalViews #-}
 
 --------------------------------------------------
 -- Upload API
@@ -248,6 +258,7 @@ uploadParts parts = do
   case eitherDecode (responseBody resp) of
     Left e -> error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
+{-# INLINEABLE uploadParts #-}
 
 -- | Upload a image from a filepath to Telegraph
 uploadImageFromFile :: (Effs '[Telegraph', Bracket, Embed IO] m) => FilePath -> m UploadResult
@@ -257,6 +268,7 @@ uploadImageFromFile fp =
     let body = requestBodySourceChunked src
         part = partFileRequestBody "file" fp body
     lift $ uploadParts [part]
+{-# INLINEABLE uploadImageFromFile #-}
 
 -- | Upload a list of images to Telegraph. The resulting list of images will be in the same order
 uploadImageFromFiles :: (Effs '[Telegraph', Bracket, Embed IO] m) => [FilePath] -> m UploadResult
@@ -266,6 +278,7 @@ uploadImageFromFiles fps =
     let bodies = map requestBodySourceChunked srcs
         parts = zipWith (\fp -> partFileRequestBody (pack fp) fp) fps bodies
     lift $ uploadParts parts
+{-# INLINEABLE uploadImageFromFiles #-}
 
 data ImgStream = ImgStream
   { -- | an image stream needs a filename
@@ -281,10 +294,12 @@ imgStream2Part ImgStream {..} = partFileRequestBody name (unpack name) body
 -- | Upload a image stream to Telegraph
 uploadImageStreaming :: Eff Telegraph' m => ImgStream -> m UploadResult
 uploadImageStreaming imgs = uploadParts [imgStream2Part imgs]
+{-# INLINEABLE uploadImageStreaming #-}
 
 -- | Upload a list of image streams to Telegraph. The resulting list of images
 uploadImagesStreaming :: Eff Telegraph' m => [ImgStream] -> m UploadResult
 uploadImagesStreaming imgss = uploadParts $ map imgStream2Part imgss
+{-# INLINEABLE uploadImagesStreaming #-}
 
 --------------------------------------------------
 -- Utils
@@ -303,6 +318,7 @@ postAeson url c = do
   case eitherDecode (responseBody resp) of
     Left e -> error ("impossible: json decode failure: " ++ e)
     Right r -> pure r
+{-# INLINE postAeson #-}
 
 type TelegraphToIOC =
   CompositionC
@@ -321,6 +337,7 @@ runTelegraph accessToken m =
     Account {shortName, authorName, authorUrl} <- processResult =<< getAccountInfo' accessToken
     ref <- embed $ newMVar TS {..}
     runReader ref $ telegraph $ runComposition m
+{-# INLINE runTelegraph #-}
 
 runTelegraph' ::
   (Effs '[Embed IO, Reader Manager, Error HttpException, Throw TelegraphError] m, Threaders '[ReaderThreads] m p) =>
@@ -332,10 +349,12 @@ runTelegraph' acc m =
     Account {shortName, authorName, authorUrl, accessToken = accessToken'} <- processResult =<< createAccount acc
     ref <- embed $ newMVar TS {accessToken = fromJust accessToken', ..}
     runReader ref $ telegraph $ runComposition m
+{-# INLINE runTelegraph' #-}
 
 processResult :: Eff (Throw TelegraphError) m => Result a -> m a
 processResult (Error e) = throw $ APICallFailure e
 processResult (Result r) = pure r
+{-# INLINE processResult #-}
 
 evalContT :: Applicative m => ContT r m r -> m r
 evalContT m = runContT m pure
@@ -347,3 +366,4 @@ withSourceFile fp = ContT $ \k ->
     (embed $ openBinaryFile fp ReadMode)
     (embed . hClose)
     (k . sourceHandle)
+{-# INLINE withSourceFile #-}
