@@ -13,3 +13,9 @@ Initial release
 - Performance optimizations
 - Remove `errorToIO'` and `errorToErrorIO'`
 - Rename `errorToIOThrowing` to `errorToIOAsExc` and `errorToErrorIOThrowing` to `errorToErrorIOAsExc`
+
+## 1.1.1
+
+- Performance optimizations
+- Fix tests
+- Generate labeled optics
