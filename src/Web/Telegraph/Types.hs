@@ -3,6 +3,8 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Type definitions, note that all fields are strict
 module Web.Telegraph.Types where
@@ -14,6 +16,7 @@ import Data.Text (Text, unpack)
 import Deriving.Aeson
 import Deriving.Aeson.Stock
 import Generic.Data.Surgery
+import Optics.TH
 
 -- | A Telegraph account
 data Account = Account
@@ -157,3 +160,15 @@ newtype TelegraphError
 
 instance Show TelegraphError where
   show (APICallFailure e) = "API call failed with error: " ++ unpack e
+
+makeFieldLabelsWith noPrefixFieldLabels ''Account
+makeFieldLabelsWith noPrefixFieldLabels ''PageList
+makeFieldLabelsWith noPrefixFieldLabels ''Page
+makeFieldLabelsWith noPrefixFieldLabels ''PageViews
+makeFieldLabelsWith noPrefixFieldLabels ''NodeElement
+makeFieldLabelsWith noPrefixFieldLabels ''Image
+makeFieldLabelsWith noPrefixFieldLabels ''UploadResult
+
+makePrismLabels ''Result
+makePrismLabels ''Node
+makePrismLabels ''UploadResult
