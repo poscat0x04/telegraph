@@ -64,6 +64,7 @@ instance
 
 type HttpC = InterpretC HttpH Http
 
+-- | Interpret an @Http@ effect
 http ::
   Effs '[Embed IO, Reader Manager] m =>
   HttpC m a ->
