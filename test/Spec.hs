@@ -13,8 +13,8 @@ main :: IO ()
 main = do
   manager <- newTlsManager
   runM $
-    errorToIOThrowing @TelegraphError $
-      errorToIOThrowing @HttpException $
+    errorToIOAsExc @TelegraphError $
+      errorToIOAsExc @HttpException $
         runReader manager $
           runTelegraph "b968da509bb76866c35425099bc0989a5ec3b32997d55286c657e6994bbb" $ do
             pl <- getPageList 0 3
