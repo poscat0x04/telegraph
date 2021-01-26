@@ -7,7 +7,9 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | The telegraph API.
--- Every function that runs in 'MonadTelegraph' might throw a 'TelegraphError'.
+-- Note that the @'Error' 'HttpException'@ effect should be interpreted using
+-- either 'errorToIOAsExc' or 'errorToErrorIOAsExc' or otherwise it won't get
+-- caught.
 module Web.Telegraph.API
   ( -- ** Types
     AccountInfo (..),
@@ -281,7 +283,7 @@ uploadImageFromFiles fps =
 {-# INLINEABLE uploadImageFromFiles #-}
 
 data ImgStream = ImgStream
-  { -- | an image stream needs a filename
+  { -- | filename
     name :: Text,
     stream :: forall i n. MonadIO n => ConduitT i ByteString n ()
   }
@@ -327,6 +329,7 @@ type TelegraphToIOC =
        HttpC
      ]
 
+-- | Interpret a 'Http' effect together with a 'Telegraph' effect with a supplied access token
 runTelegraph ::
   (Effs '[Embed IO, Reader Manager, Error HttpException, Throw TelegraphError] m, Threaders '[ReaderThreads] m p) =>
   Text ->
@@ -339,6 +342,8 @@ runTelegraph accessToken m =
     runReader ref $ telegraph $ runComposition m
 {-# INLINE runTelegraph #-}
 
+-- | Interpret a 'Http' effect together with a 'Telegraph' effect with account info
+-- that will be used to create a new account
 runTelegraph' ::
   (Effs '[Embed IO, Reader Manager, Error HttpException, Throw TelegraphError] m, Threaders '[ReaderThreads] m p) =>
   AccountInfo ->
