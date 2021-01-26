@@ -95,18 +95,23 @@ errorToIOAsExc m =
 
 takeTS :: Eff Telegraph m => m TS
 takeTS = send TakeTS
+{-# INLINE takeTS #-}
 
 readTS :: Eff Telegraph m => m TS
 readTS = send ReadTS
+{-# INLINE readTS #-}
 
 putTS :: Eff Telegraph m => TS -> m ()
 putTS !s = send (PutTS s)
+{-# INLINE putTS #-}
 
 httpLbs :: Effs '[Http, Error HttpException] m => Request -> m (Response LBS.ByteString)
 httpLbs !r = send (HttpLbs r)
+{-# INLINE httpLbs #-}
 
 genBoundary :: Eff Http m => m ByteString
 genBoundary = send GenBoundary
+{-# INLINE genBoundary #-}
 
 -- | Telegraph state
 data TS = TS
