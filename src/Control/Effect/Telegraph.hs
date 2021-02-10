@@ -7,7 +7,6 @@ module Control.Effect.Telegraph where
 import Control.Concurrent
 import Control.Effect
 import Control.Effect.Error
-import Control.Effect.ErrorIO
 import Control.Effect.Reader
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
@@ -71,27 +70,6 @@ http ::
   m a
 http = interpretViaHandler
 {-# INLINE http #-}
-
-errorToErrorIOAsExc ::
-  (Exception e, Effs '[ErrorIO, Embed IO] m) =>
-  InterpretErrorC e m a ->
-  m a
-errorToErrorIOAsExc main =
-  interpret (\(Throw e) -> throwIO e) $
-    interpret (\(Catch m h) -> m `catchIO` h) $
-      runComposition main
-{-# INLINE errorToErrorIOAsExc #-}
-
-errorToIOAsExc ::
-  (Exception e, Eff (Embed IO) m, MonadCatch m) =>
-  ErrorToIOC e m a ->
-  m a
-errorToIOAsExc m =
-  errorIOToIO $
-    errorToErrorIOAsExc $
-      introUnderMany $
-        runComposition m
-{-# INLINE errorToIOAsExc #-}
 
 takeTS :: Eff Telegraph m => m TS
 takeTS = send TakeTS

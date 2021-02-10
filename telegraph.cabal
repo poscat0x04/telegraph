@@ -20,7 +20,7 @@ common common-attrs
   build-depends:
     , base            >=4.10  && <5
     , http-client     >=0.6.4 && <=0.8
-    , in-other-words  ^>=0.1.0
+    , in-other-words  ^>=0.2.0
 
   default-language:   Haskell2010
   default-extensions:
