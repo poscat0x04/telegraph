@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Effect
+import Control.Effect.Error
 import Control.Effect.Reader
 import Network.HTTP.Client (HttpException)
 import Network.HTTP.Client.TLS
