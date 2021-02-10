@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Control.Effect.Telegraph where
@@ -11,10 +12,10 @@ import Control.Effect.Reader
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
-import GHC.Generics
 import Network.HTTP.Client
 import qualified Network.HTTP.Client as C
 import Network.HTTP.Client.MultipartFormData
+import Optics.TH
 
 data Http :: Effect where
   HttpLbs :: Request -> Http m (Response LBS.ByteString)
@@ -98,4 +99,6 @@ data TS = TS
     authorName :: Text,
     authorUrl :: Text
   }
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq)
+
+makeFieldLabelsWith noPrefixFieldLabels ''TS

@@ -5,6 +5,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | The telegraph API.
@@ -70,25 +71,25 @@ import Control.Effect.Error
 import Control.Effect.Reader
 import Control.Effect.Telegraph
 import Control.Monad.Cont
-import Data.Aeson (eitherDecode, encode, object, (.=))
+import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode, object, (.=))
+import Data.Aeson.TH
 import Data.ByteString (ByteString)
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
-import Deriving.Aeson
-import Deriving.Aeson.Stock
 import Network.HTTP.Client (HttpException, Manager, Request (..), RequestBody (..), Response (..), parseRequest_)
 import Network.HTTP.Client.Conduit (requestBodySourceChunked)
 import Network.HTTP.Client.MultipartFormData
+import Optics.TH
 import System.IO
 import Web.Telegraph.Types hiding (error)
+import Web.Telegraph.Utils
 
 data AccountInfo = AccountInfo
-  { shortName :: {-# UNPACk #-} Text,
+  { shortName :: {-# UNPACK #-} Text,
     authorName :: {-# UNPACK #-} Text,
     authorUrl :: {-# UNPACK #-} Text
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Snake AccountInfo
+  deriving (Show, Eq)
 
 -- | Use this method to create a new Telegraph account
 createAccount :: Eff Http' m => AccountInfo -> m (Result Account)
@@ -160,8 +161,7 @@ data CreatePage = CreatePage
     content :: [Node],
     returnContent :: Bool
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Snake CreatePage
+  deriving (Show, Eq)
 
 -- | Use this method to create a new Telegraph page
 createPage ::
@@ -369,3 +369,9 @@ withSourceFile fp = ContT $ \k ->
     (embed . hClose)
     (k . sourceHandle)
 {-# INLINE withSourceFile #-}
+
+deriveJSON snake ''AccountInfo
+deriveJSON snake ''CreatePage
+makeFieldLabelsWith noPrefixFieldLabels ''AccountInfo
+makeFieldLabelsWith noPrefixFieldLabels ''CreatePage
+makeFieldLabelsWith noPrefixFieldLabels ''ImgStream

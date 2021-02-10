@@ -11,12 +11,13 @@ module Web.Telegraph.Types where
 
 import Control.Exception
 import Data.Aeson hiding (Result (..))
+import Data.Aeson.TH
 import Data.Maybe
 import Data.Text (Text, unpack)
-import Deriving.Aeson
-import Deriving.Aeson.Stock
+import GHC.Generics
 import Generic.Data.Surgery
 import Optics.TH
+import Web.Telegraph.Utils
 
 -- | A Telegraph account
 data Account = Account
@@ -39,8 +40,7 @@ data Account = Account
     -- | Number of pages belonging to the Telegraph account
     pageCount :: Maybe Int
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via CustomJSON '[FieldLabelModifier CamelToSnake, OmitNothingFields] Account
+  deriving (Show, Eq)
 
 -- | A list of Telegraph articles belonging to an account
 --
@@ -51,8 +51,7 @@ data PageList = PageList
     -- | Requested pages of the target Telegraph account
     pages :: [Page]
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Snake PageList
+  deriving (Show, Eq)
 
 -- | A page on Telegraph
 data Page = Page
@@ -79,20 +78,17 @@ data Page = Page
     -- | True, if the target Telegraph account can edit the page
     canEdit :: Maybe Bool
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via CustomJSON '[FieldLabelModifier CamelToSnake, OmitNothingFields] Page
+  deriving (Show, Eq)
 
 -- | The number of page views for a Telegraph article
 newtype PageViews = PageViews {views :: Int}
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Vanilla PageViews
+  deriving (Show, Eq)
 
 -- | A DOM Node
 data Node
   = Content {-# UNPACK #-} Text
   | Element {-# UNPACK #-} NodeElement
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via CustomJSON '[SumUntaggedValue] Node
+  deriving (Show, Eq)
 
 -- | A DOM elemen node
 data NodeElement = NodeElement
@@ -111,7 +107,6 @@ data NodeElement = NodeElement
     children :: [Node]
   }
   deriving (Show, Eq, Generic)
-  deriving (ToJSON) via Vanilla NodeElement
 
 instance FromJSON NodeElement where
   parseJSON =
@@ -127,7 +122,7 @@ instance FromJSON NodeElement where
 data Result a
   = Error {-# UNPACK #-} Text
   | Result a
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq)
 
 instance FromJSON a => FromJSON (Result a) where
   parseJSON = withObject "telegra.ph api call result" $ \o -> do
@@ -141,15 +136,13 @@ newtype Image = Image
   { -- | The path to the image
     src :: Text
   }
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via Vanilla Image
+  deriving (Show, Eq)
 
 -- | The result of an image upload
 data UploadResult
   = UploadError {error :: {-# UNPACK #-} Text}
   | Sources [Image]
-  deriving (Show, Eq, Generic)
-  deriving (FromJSON, ToJSON) via CustomJSON '[SumUntaggedValue] UploadResult
+  deriving (Show, Eq)
 
 newtype TelegraphError
   = -- | An api call has failed, we cannot distinguish between minor errors (such as illformed author urls)
@@ -161,6 +154,17 @@ newtype TelegraphError
 instance Show TelegraphError where
   show (APICallFailure e) = "API call failed with error: " ++ unpack e
 
+--------------------------------------------------
+-- Utilities
+
+deriveJSON snake ''Account
+deriveJSON snake ''PageList
+deriveJSON snake ''Page
+deriveJSON snake ''PageViews
+deriveJSON sumUntagged ''Node
+deriveToJSON snake ''NodeElement
+deriveJSON snake ''Image
+deriveJSON sumUntagged ''UploadResult
 makeFieldLabelsWith noPrefixFieldLabels ''Account
 makeFieldLabelsWith noPrefixFieldLabels ''PageList
 makeFieldLabelsWith noPrefixFieldLabels ''Page
