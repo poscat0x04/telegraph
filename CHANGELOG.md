@@ -19,3 +19,8 @@ Initial release
 - Performance optimizations
 - Fix tests
 - Generate labeled optics
+
+## 1.2.0
+
+- Bump dependencies
+- Performance optimizations
