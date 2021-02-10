@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | The telegraph API.
@@ -82,9 +83,9 @@ import System.IO
 import Web.Telegraph.Types hiding (error)
 
 data AccountInfo = AccountInfo
-  { shortName :: Text,
-    authorName :: Text,
-    authorUrl :: Text
+  { shortName :: {-# UNPACk #-} Text,
+    authorName :: {-# UNPACK #-} Text,
+    authorUrl :: {-# UNPACK #-} Text
   }
   deriving (Show, Eq, Generic)
   deriving (FromJSON, ToJSON) via Snake AccountInfo
@@ -152,8 +153,8 @@ revokeAccessToken =
 {-# INLINEABLE revokeAccessToken #-}
 
 data CreatePage = CreatePage
-  { accessToken :: Text,
-    title :: Text,
+  { accessToken :: {-# UNPACK #-} Text,
+    title :: {-# UNPACK #-} Text,
     authorName :: Maybe Text,
     authorUrl :: Maybe Text,
     content :: [Node],
@@ -280,7 +281,7 @@ uploadImageFromFiles fps =
 
 data ImgStream = ImgStream
   { -- | filename
-    name :: Text,
+    name :: {-# UNPACK #-} Text,
     stream :: forall i n. MonadIO n => ConduitT i ByteString n ()
   }
 
