@@ -62,7 +62,7 @@ library
     , generic-data-surgery  ^>=0.3.0
     , http-conduit          ^>=2.3.7
     , mtl                   ^>=2.2.2
-    , optics-th             ^>=0.3
+    , optics-th             >=0.3     && <0.5
     , text                  ^>=1.2.4
 
   exposed-modules:

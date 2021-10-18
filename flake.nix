@@ -16,7 +16,12 @@
     ) // {
       overlay = self: super:
         let
-          hpkgs = super.haskellPackages;
+          hpkgs = super.haskellPackages.override {
+            overrides = hself: hsuper: {
+              optics-core = hsuper.optics-core_0_4;
+              optics-th = hsuper.optics-th_0_4;
+            };
+          };
           telegraph = self.haskell.lib.dontCheck (hpkgs.callCabal2nix "telegraph" ./. {});
         in
           with super; with haskell.lib;
